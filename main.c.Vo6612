@@ -41,6 +41,7 @@ void logSockError(char *message);
 int bindSocket(SOCKET ServerSocket, struct addrinfo serverInfo);
 int listenSocket(SOCKET ServerSocket);
 int webServer(SOCKET *ServerSocket);
+int setHTTPRequest(SOCKET ClientSocket, char *HTTPRequest);
 int processHTTPRequest(SOCKET ClientSocket, char *HTTPRequest);
 
 int main()
@@ -49,7 +50,12 @@ int main()
     struct addrinfo *serverInfo = NULL;
     struct addrinfo hints;
     SOCKET ServerSocket = INVALID_SOCKET;
+//    SOCKET ClientSocket = INVALID_SOCKET;
+
     int success = 0;
+//    char recvbuffer[DEFAULT_BUFLEN];
+//    char *HTTPRequest;
+//    char *HTTPResponse;
 
     // Inicializa o winsock.
     if (!initWinsock(&(wsaData))) {
@@ -197,11 +203,6 @@ int listenSocket(SOCKET ServerSocket)
     return (listen(ServerSocket, SOMAXCONN) != SOCKET_ERROR);
 }
 
-/**
- * @brief webServer
- * @param ServerSocket
- * @return
- */
 int webServer(SOCKET *ServerSocket)
 {
     SOCKET ClientSocket = INVALID_SOCKET;
@@ -225,7 +226,9 @@ int webServer(SOCKET *ServerSocket)
     closesocket(*ServerSocket);
 
     // Recebe os dados da requisição HTTP.
-    if (recv(ClientSocket, HTTPRequest, DEFAULT_BUFLEN, 0) == SOCKET_ERROR) {
+    success = setHTTPRequest(ClientSocket, &(HTTPRequest));
+
+    if (!success) {
         logSockError("Falha ao receber dados do cliente.");
         closesocket(ClientSocket);
         return exitServer();
@@ -235,17 +238,23 @@ int webServer(SOCKET *ServerSocket)
 }
 
 /**
- * @brief processHTTPRequest
- * @param ClientSocket
+ * @brief setHTTPRequest
  * @param HTTPRequest
  * @return
  */
+int setHTTPRequest(SOCKET ClientSocket, char *HTTPRequest)
+{
+    return (recv(ClientSocket, &(HTTPRequest), DEFAULT_BUFLEN, 0) != SOCKET_ERROR);
+}
+
+
 int processHTTPRequest(SOCKET ClientSocket, char *HTTPRequest)
 {
-    char *HTTPResponse = "HTTP/1.1 200 OK\n\n<h1>Hello World</h1>";
+    char *HTTPResponse = "HTTP/1.0 404 Not Found\n";
 
     log("========== HTTP Request ========");
-    log(HTTPRequest);
+    log(HTTPRequest[0]);
+    log("========== eof HTTP Request ========");
 
     if (send(ClientSocket, HTTPResponse, strlen(HTTPResponse), 0) == SOCKET_ERROR) {
         logSockError("Falha ao enviar a resposta HTTP.");
@@ -259,7 +268,7 @@ int processHTTPRequest(SOCKET ClientSocket, char *HTTPRequest)
         return exitServer();
     }
 
-    log("OK! Requisicao atendida com sucesso. Fechando a conexão...");
+    log("OK! Requisicao atendida com sucesso.");
     closesocket(ClientSocket);
     return exitServer();
 }
