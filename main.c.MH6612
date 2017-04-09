@@ -18,7 +18,6 @@
 
 #define DEFAULT_PORT "3000"
 #define DEFAULT_BUFLEN 20000
-#define DEFAULT_SERVERROOT "C:\\webserver"
 
 // INCLUDE SECTION
 
@@ -312,50 +311,25 @@ char *getHTTPResponse(char *HTTPRequest)
  */
 char *processGetRequest(char *HTTPRequest)
 {
-    char *response;
     char *content;
-    char *status;
-    char HTTPVersion[] = "HTTP/1.1";
     char *startOfPath = strchr(HTTPRequest, '/');
     char *endOfPath = strchr(startOfPath, ' ');
     char path[endOfPath - startOfPath];
     strncpy(path, startOfPath, endOfPath - startOfPath);
     path[sizeof(path)] = 0;
 
-    // Valor padrao do status da requisicao.
-    status = "200 OK";
-
-    // Tratando "/" e "/index.html" igualmente.
     if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
         content = getFileContent("/index.html");
-    } else if (strcmp(path, "/error.html") == 0)  {
-        content = getFileContent(path);
-        status = "500 Internal Server Error";
     } else {
         content = getFileContent(path);
     }
 
-    // Verifica se o arquivo não foi encontrado no servidor.
-    if (content == NULL) {
-        // Busca a pagina "404.html".
-        content = getFileContent("/404.html");
+    log("============= content =============");
+    printf("%s", content);
+    log("============= eof content =============");
 
-        // Verifica se a pagina "404.html" nao foi encontrada.
-        if (content == NULL) {
-            content = "<h1>404 Not Found</h1>";
-        }
-        status = "404 Not Found";
-    }
-
-    response = (char *) malloc(strlen(HTTPVersion) + strlen(status) + strlen(content) + 1);
-
-    strcpy(response, HTTPVersion);
-    strcat(response, " ");
-    strcat(response, status);
-    strcat(response, "\n\n");
-    strcat(response, content);
-
-    return response;
+    return "HTTP/1.1 200 OK \
+            \n\n<h1>Hello World</h1>";
 }
 
 /**
@@ -366,24 +340,29 @@ char *processGetRequest(char *HTTPRequest)
 char *getFileContent(char *filename)
 {
     FILE *file;
-    char *pathname = resolvePathname(filename);
-    char *fileContent;
-    long fileSize;
+    char serverRoot[] = "C:\\webserver";
+    char *pathname = (char *) malloc(strlen(filename) + 1);
+    char *final;
 
-    file = fopen(pathname, "r");
+    pathname = resolvePathname(filename);
 
-    if (file != NULL) {
-        fseek(file, 0, SEEK_END);
-        fileSize = ftell(file);
-        rewind(file);
-        fileContent = malloc((fileSize + 1) * (sizeof(char)));
-        fread(fileContent, sizeof(char), fileSize, file);
-        fclose(file);
-        fileContent[fileSize] = 0;
-        return fileContent;
-    }
+    final = (char *) malloc(strlen(serverRoot) + strlen(pathname) + 1);
 
-    return NULL;
+    strcpy(final, serverRoot);
+    strcat(final, pathname);
+
+    log(final);
+
+    return "OKKKK...";
+
+//    file = fopen(pathname, "r");
+
+//    if (file != NULL) {
+//        return "OK FILE EXISTS!";
+//        fclose(file);
+//    } else {
+//        return "404 FILE DOES NOT EXISTS!!!!";
+//    }
 }
 
 /**
@@ -393,24 +372,18 @@ char *getFileContent(char *filename)
  */
 char *resolvePathname(char *filename)
 {
-    char serverRoot[] = DEFAULT_SERVERROOT;
-    char *resolvedFilename = malloc(strlen(filename) + 1);
-    char *pathname;
+    char *final = malloc(strlen(filename) + 1);
     int i = 0;
 
     for (i; filename[i] != '\0'; i++) {
 
         if (filename[i] == '/') {
-            resolvedFilename[i] = '\\';
+            final[i] = '\\';
         } else {
-            resolvedFilename[i] = filename[i];
+            final[i] = filename[i];
         }
     }
-    resolvedFilename[i] = '\0';
-    pathname = (char *) malloc(strlen(serverRoot) + strlen(resolvedFilename) + 1);
+    final[i] = '\0';
 
-    strcpy(pathname, serverRoot);
-    strcat(pathname, resolvedFilename);
-
-    return pathname;
+    return final;
 }
