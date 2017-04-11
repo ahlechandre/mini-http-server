@@ -65,15 +65,12 @@ int main()
     SOCKET ServerSocket = INVALID_SOCKET;
     SOCKET ClientSocketList[DEFAULT_MAXCLIENTS];
     fd_set socketDescriptors;
-    int maxClients = DEFAULT_MAXCLIENTS;
     int socketActivity;
     int i;
-//    int *buffer;
-//    int maxReceive = 1024;
-//    buffer = (char *) malloc((maxReceive + 1) * sizeof(char));
     int success = 0;
 
-    for (i = 0; i < maxClients; i++) {
+    // Inicializa a lista de Sockets.
+    for (i = 0; i < DEFAULT_MAXCLIENTS; i++) {
         ClientSocketList[i] = 0;
     }
 
@@ -126,7 +123,6 @@ int main()
         return exitServer();
     }
 
-    /* teste */
     log("================================================");
     log("---------- Servidor em localhost:3000 ----------");
     log("================================================");
@@ -578,6 +574,12 @@ void logSocket(SOCKET LogSocket, char *message)
     printf("\n+- Mensagem: %s\n", message);
 }
 
+/**
+ * @brief logHTTPMessage
+ * @param title
+ * @param content
+ * @param MessageSocket
+ */
 void logHTTPMessage(char *title, char *content, SOCKET MessageSocket)
 {
     printf("\n======== %s =======\n", title);
