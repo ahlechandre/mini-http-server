@@ -19,6 +19,7 @@
 #define DEFAULT_PORT "3000"
 #define DEFAULT_BUFLEN 20000
 #define DEFAULT_SERVERROOT "C:\\webserver"
+#define DEFAULT_MAXCLIENTS 30
 
 // INCLUDE SECTION
 
@@ -49,6 +50,12 @@ char *getHTTPResponse(char *HTTPRequest);
 char *processGetRequest(char *HTTPRequest);
 char *getFileContent(char *filename);
 char *resolvePathname(char *filename);
+void initSocketDescriptors(struct fd_set *socketDescriptors, SOCKET ServerSocket, SOCKET ClientSocketList[]);
+int acceptNewConnection(SOCKET ServerSocket, SOCKET ClientSocketList[]);
+int getConnectedClientsCount(SOCKET ClientSocketList[]);
+int processSocketActivity(SOCKET ClientSocketList[], int socketIndex);
+void logSocket(SOCKET LogSocket, char *message);
+void logHTTPMessage(char *title, char *content, SOCKET MessageSocket);
 
 int main()
 {
@@ -56,7 +63,19 @@ int main()
     struct addrinfo *serverInfo = NULL;
     struct addrinfo hints;
     SOCKET ServerSocket = INVALID_SOCKET;
+    SOCKET ClientSocketList[DEFAULT_MAXCLIENTS];
+    fd_set socketDescriptors;
+    int maxClients = DEFAULT_MAXCLIENTS;
+    int socketActivity;
+    int i;
+//    int *buffer;
+//    int maxReceive = 1024;
+//    buffer = (char *) malloc((maxReceive + 1) * sizeof(char));
     int success = 0;
+
+    for (i = 0; i < maxClients; i++) {
+        ClientSocketList[i] = 0;
+    }
 
     // Inicializa o winsock.
     if (!initWinsock(&(wsaData))) {
@@ -107,7 +126,56 @@ int main()
         return exitServer();
     }
 
-    return webServer(&(ServerSocket));
+    /* teste */
+    log("================================================");
+    log("---------- Servidor em localhost:3000 ----------");
+    log("================================================");
+
+    while(1) {
+        // Inicializa a estrutura para armazenar sockets.
+        initSocketDescriptors(&(socketDescriptors), ServerSocket, ClientSocketList);
+
+        // Espera alguma atividade nos sockets adicionados.
+        // Parametro "timeout" definido como NULL (espera por tempo indeterminado).
+        socketActivity = select(0, &(socketDescriptors), NULL, NULL, NULL);
+
+        if (socketActivity == SOCKET_ERROR) {
+            logSockError("Falha ao selecionar Sockets.");
+            closesocket(ServerSocket);
+            return exitServer();
+        }
+
+        // Verifica se existe atividade no Socket servidor.
+        // Se existir, significa que algum cliente esta tentando se conectar.
+        if (FD_ISSET(ServerSocket, &(socketDescriptors))) {
+
+            // Tenta aceitar nova conexao.
+            success = acceptNewConnection(ServerSocket, ClientSocketList);
+
+            if (!success) {
+                logSockError("Falha ao aceitar nova conexao.");
+                closesocket(ServerSocket);
+                return exitServer();
+            }
+        }
+
+        // Verifica se existe atividade em outros Sockets conectados.
+        // Se existir, significa que algum cliente esta enviando ou recebendo dados (I/O).
+        for (i = 0; i < DEFAULT_MAXCLIENTS; i++) {
+
+            if (FD_ISSET(ClientSocketList[i], &(socketDescriptors))) {
+                // Processa a atividade do Socket.
+                success = processSocketActivity(ClientSocketList, i);
+
+                if (!success) {
+                    return exitServer();
+                }
+            }
+        }
+    }
+
+    WSACleanup();
+    return 0;
 }
 
 /**
@@ -207,43 +275,6 @@ int listenSocket(SOCKET ServerSocket)
 }
 
 /**
- * @brief webServer
- * @param ServerSocket
- * @return
- */
-int webServer(SOCKET *ServerSocket)
-{
-    SOCKET ClientSocket = INVALID_SOCKET;
-    int success = 0;
-    char HTTPRequest[DEFAULT_BUFLEN];
-
-    printf("\n=======================================\n");
-    printf("Servidor Web em localhost:%s", DEFAULT_PORT);
-    printf("\n=======================================\n");
-
-    // Aceita a conexão efetuada pelo cliente com o Socket servidor.
-    ClientSocket = accept(*ServerSocket, NULL, NULL);
-
-    if (ClientSocket == INVALID_SOCKET) {
-        logSockError("Falha ao aceitar a conexão com o cliente.");
-        closesocket(*ServerSocket);
-        return exitServer();
-    }
-
-    // Fecha o Socket servidor.
-    closesocket(*ServerSocket);
-
-    // Recebe os dados da requisição HTTP.
-    if (recv(ClientSocket, HTTPRequest, DEFAULT_BUFLEN, 0) == SOCKET_ERROR) {
-        logSockError("Falha ao receber dados do cliente.");
-        closesocket(ClientSocket);
-        return exitServer();
-    }
-
-    return processHTTPRequest(ClientSocket, HTTPRequest);
-}
-
-/**
  * @brief processHTTPRequest
  * @param ClientSocket
  * @param HTTPRequest
@@ -255,19 +286,19 @@ int processHTTPRequest(SOCKET ClientSocket, char *HTTPRequest)
 
     if (send(ClientSocket, HTTPResponse, strlen(HTTPResponse), 0) == SOCKET_ERROR) {
         logSockError("Falha ao enviar a resposta HTTP.");
-        closesocket(ClientSocket);
-        return exitServer();
+        return 0;
     }
 
     if (shutdown(ClientSocket, SD_SEND) == SOCKET_ERROR) {
         logSockError("Falha ao desligar o Socket cliente.");
-        closesocket(ClientSocket);
-        return exitServer();
+        return 0;
     }
 
-    log("OK! Requisicao atendida com sucesso. Fechando a conexao...");
-    closesocket(ClientSocket);
-    return exitServer();
+    logHTTPMessage("HTTP Response", HTTPResponse, ClientSocket);
+
+    free(HTTPResponse);
+
+    return 1;
 }
 
 /**
@@ -347,7 +378,7 @@ char *processGetRequest(char *HTTPRequest)
         status = "404 Not Found";
     }
 
-    response = (char *) malloc(strlen(HTTPVersion) + strlen(status) + strlen(content) + 1);
+    response = (char *) malloc((strlen(HTTPVersion) + strlen(status) + strlen(content) + 1) * sizeof(char));
 
     strcpy(response, HTTPVersion);
     strcat(response, " ");
@@ -355,6 +386,7 @@ char *processGetRequest(char *HTTPRequest)
     strcat(response, "\n\n");
     strcat(response, content);
 
+    free(content);
     return response;
 }
 
@@ -371,12 +403,13 @@ char *getFileContent(char *filename)
     long fileSize;
 
     file = fopen(pathname, "r");
+    free(pathname);
 
     if (file != NULL) {
         fseek(file, 0, SEEK_END);
         fileSize = ftell(file);
         rewind(file);
-        fileContent = malloc((fileSize + 1) * (sizeof(char)));
+        fileContent = (char *) malloc((fileSize + 1) * (sizeof(char)));
         fread(fileContent, sizeof(char), fileSize, file);
         fclose(file);
         fileContent[fileSize] = 0;
@@ -394,7 +427,7 @@ char *getFileContent(char *filename)
 char *resolvePathname(char *filename)
 {
     char serverRoot[] = DEFAULT_SERVERROOT;
-    char *resolvedFilename = malloc(strlen(filename) + 1);
+    char resolvedFilename[(strlen(filename) * 2)];
     char *pathname;
     int i = 0;
 
@@ -407,10 +440,148 @@ char *resolvePathname(char *filename)
         }
     }
     resolvedFilename[i] = '\0';
-    pathname = (char *) malloc(strlen(serverRoot) + strlen(resolvedFilename) + 1);
+
+    pathname = (char *) malloc(((strlen(serverRoot) + strlen(resolvedFilename)) * 2) * sizeof(char));
 
     strcpy(pathname, serverRoot);
     strcat(pathname, resolvedFilename);
 
     return pathname;
+}
+
+/**
+ * @brief initSocketDescriptors
+ * @param socketDescriptors
+ * @param ServerSocket
+ * @param ClientSocketList
+ */
+void initSocketDescriptors(fd_set *socketDescriptors, SOCKET ServerSocket, SOCKET ClientSocketList[])
+{
+    // Inicializa a estrutura para armazenar Sockets.
+    FD_ZERO(socketDescriptors);
+    // Adiciona o Socket do servidor.
+    FD_SET(ServerSocket, socketDescriptors);
+    int i;
+
+    // Adiciona os Sockets clientes.
+    for (i = 0; i < DEFAULT_MAXCLIENTS; i++) {
+
+        if (ClientSocketList[i] > 0) {
+            FD_SET(ClientSocketList[i], socketDescriptors);
+        }
+    }
+}
+
+/**
+ * @brief acceptNewConnection
+ * @param ServerSocket
+ * @param ClientSocketList
+ * @return
+ */
+int acceptNewConnection(SOCKET ServerSocket, SOCKET ClientSocketList[])
+{
+    SOCKET RecentSocket;
+    int i;
+
+    // Aceita uma nova conexao ao Socket servidor.
+    if ((RecentSocket = accept(ServerSocket, NULL, NULL)) == INVALID_SOCKET) {
+        return 0;
+    }
+
+    // Adiciona o novo Socket conectado a lista de Socket clientes.
+    for (i = 0; i < DEFAULT_MAXCLIENTS; i++) {
+
+        if (ClientSocketList[i] == 0) {
+            ClientSocketList[i] = RecentSocket;
+            break;
+        }
+    }
+
+    logSocket(RecentSocket, "Se conectou.");
+    log("+--------------------------------+");
+    printf("+---- clientes conectados: %d ----+", getConnectedClientsCount(ClientSocketList));
+    log("+--------------------------------+");
+    return 1;
+}
+
+/**
+ * @brief getConnectedClientsCount
+ * @param ClientSocketList
+ * @return
+ */
+int getConnectedClientsCount(SOCKET ClientSocketList[])
+{
+    int i;
+    int count = 0;
+
+    for (i = 0; i < DEFAULT_MAXCLIENTS; i++) {
+        if (ClientSocketList[i] != 0) count++;
+    }
+
+    return count;
+}
+
+/**
+ * @brief processSocketActivity
+ * @param ClientSocketItem
+ * @param ClientSocketList
+ * @return
+ */
+int processSocketActivity(SOCKET ClientSocketList[], int socketIndex)
+{
+    char *HTTPRequest;
+    int success = 0;
+    SOCKET ClientSocketItem = ClientSocketList[socketIndex];
+    HTTPRequest = (char *) malloc((DEFAULT_BUFLEN + 1) * sizeof(char *));
+
+    // Recebendo dados (requisicao HTTP) do cliente.
+    success = recv(ClientSocketItem, HTTPRequest, DEFAULT_BUFLEN, 0);
+
+    // Verifica se houve erro ao receber dados.
+    if (success == SOCKET_ERROR) {
+
+        if (WSAGetLastError() == WSAECONNRESET) {
+            logSocket(ClientSocketItem, "Desconectou inesperadamente.");
+        } else {
+            logSockError("Falha ao receber dados do cliente.");
+        }
+    }
+
+    // Se nao houve erro, o cliente foi desconectado ou esta esperando uma resposta.
+    if (success == 0) {
+        logSocket(ClientSocketItem, "Desconectado.");
+    } else {
+        logHTTPMessage("HTTP Request", HTTPRequest, ClientSocketItem);
+
+        success = processHTTPRequest(ClientSocketItem, HTTPRequest);
+
+        if (!success) {
+            return 0;
+        }
+
+        logSocket(ClientSocketItem, "Atendido. Fechando a conexao...");
+    }
+
+    closesocket(ClientSocketItem);
+    ClientSocketList[socketIndex] = 0;
+    return 1;
+}
+
+/**
+ * @brief logSocket
+ * @param LogSocket
+ * @param message
+ */
+void logSocket(SOCKET LogSocket, char *message)
+{
+    printf("\n\n+- SOCKET: %d", LogSocket);
+    printf("\n+- Mensagem: %s\n", message);
+}
+
+void logHTTPMessage(char *title, char *content, SOCKET MessageSocket)
+{
+    printf("\n======== %s =======\n", title);
+    printf("\n+- SOCKET: %d", MessageSocket);
+    printf("\n+- content: %s", content);
+    printf("\n======== eof %s ===\n", title);
 }
