@@ -44,7 +44,6 @@ void logSockError(char *message);
 int bindSocket(SOCKET ServerSocket, struct addrinfo serverInfo);
 int listenSocket(SOCKET ServerSocket);
 int webServer(SOCKET *ServerSocket);
-int processHTTPRequest(SOCKET ClientSocket, char *HTTPRequest);
 char *getHTTPRequestMethod(char *HTTPRequest);
 char *getHTTPResponse(char *HTTPRequest);
 char *processGetRequest(char *HTTPRequest);
@@ -164,6 +163,8 @@ int main()
                 success = processSocketActivity(ClientSocketList, i);
 
                 if (!success) {
+                    closesocket(ClientSocketList[i]);
+                    closesocket(ServerSocket);
                     return exitServer();
                 }
             }
@@ -271,33 +272,6 @@ int listenSocket(SOCKET ServerSocket)
 }
 
 /**
- * @brief processHTTPRequest
- * @param ClientSocket
- * @param HTTPRequest
- * @return
- */
-int processHTTPRequest(SOCKET ClientSocket, char *HTTPRequest)
-{
-    char *HTTPResponse = getHTTPResponse(HTTPRequest);
-
-    if (send(ClientSocket, HTTPResponse, strlen(HTTPResponse), 0) == SOCKET_ERROR) {
-        logSockError("Falha ao enviar a resposta HTTP.");
-        return 0;
-    }
-
-    if (shutdown(ClientSocket, SD_SEND) == SOCKET_ERROR) {
-        logSockError("Falha ao desligar o Socket cliente.");
-        return 0;
-    }
-
-    logHTTPMessage("HTTP Response", HTTPResponse, ClientSocket);
-
-    free(HTTPResponse);
-
-    return 1;
-}
-
-/**
  * @brief getHTTPRequestMethod
  * @param HTTPRequest
  * @return
@@ -383,6 +357,7 @@ char *processGetRequest(char *HTTPRequest)
     strcat(response, content);
 
     free(content);
+
     return response;
 }
 
@@ -394,17 +369,17 @@ char *processGetRequest(char *HTTPRequest)
 char *getFileContent(char *filename)
 {
     FILE *file;
-    char *pathname = resolvePathname(filename);
     char *fileContent;
     long fileSize;
+    char *pathname = resolvePathname(filename);
 
-    file = fopen(pathname, "r");
+    file = fopen(pathname, "rb");
     free(pathname);
 
     if (file != NULL) {
         fseek(file, 0, SEEK_END);
         fileSize = ftell(file);
-        rewind(file);
+        fseek(file, 0, SEEK_SET);
         fileContent = (char *) malloc((fileSize + 1) * (sizeof(char)));
         fread(fileContent, sizeof(char), fileSize, file);
         fclose(file);
@@ -424,7 +399,7 @@ char *resolvePathname(char *filename)
 {
     char serverRoot[] = DEFAULT_SERVERROOT;
     char resolvedFilename[(strlen(filename) * 2)];
-    char *pathname;
+    const char *pathname;
     int i = 0;
 
     for (i; filename[i] != '\0'; i++) {
@@ -526,9 +501,10 @@ int getConnectedClientsCount(SOCKET ClientSocketList[])
 int processSocketActivity(SOCKET ClientSocketList[], int socketIndex)
 {
     char *HTTPRequest;
+    char *HTTPResponse;
     int success = 0;
     SOCKET ClientSocketItem = ClientSocketList[socketIndex];
-    HTTPRequest = (char *) malloc((DEFAULT_BUFLEN + 1) * sizeof(char *));
+    HTTPRequest = (char *) malloc((DEFAULT_BUFLEN + 1) * sizeof(char));
 
     // Recebendo dados (requisicao HTTP) do cliente.
     success = recv(ClientSocketItem, HTTPRequest, DEFAULT_BUFLEN, 0);
@@ -549,12 +525,20 @@ int processSocketActivity(SOCKET ClientSocketList[], int socketIndex)
     } else {
         logHTTPMessage("HTTP Request", HTTPRequest, ClientSocketItem);
 
-        success = processHTTPRequest(ClientSocketItem, HTTPRequest);
+        HTTPResponse = getHTTPResponse(HTTPRequest);
 
-        if (!success) {
+        if (send(ClientSocketItem, HTTPResponse, strlen(HTTPResponse), 0) == SOCKET_ERROR) {
+            logSockError("Falha ao enviar a resposta HTTP.");
             return 0;
         }
 
+        if (shutdown(ClientSocketItem, SD_SEND) == SOCKET_ERROR) {
+            logSockError("Falha ao desligar o Socket cliente.");
+            return 0;
+        }
+
+        logHTTPMessage("HTTP Response", HTTPResponse, ClientSocketItem);
+        free(HTTPResponse);
         logSocket(ClientSocketItem, "Atendido. Fechando a conexao...");
     }
 
