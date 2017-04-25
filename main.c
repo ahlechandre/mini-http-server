@@ -1,13 +1,7 @@
 /**
  * @author Alexandre Thebaldi <ahlechandre@gmail.com>
- * @author Thiago Brandão <thiagothgb@gmail.com>
- * @description "=========== Mini HTTP Server ===========
-    - Responder requisições GET
-    - Enviar STATUS 200, 404 e 505
-    - Como parametro, o mini HTTP server deve receber um PATH para uma pasta que será o "/" do domínio local
-    - Para cada GET, o arquivo alvo deve ser buscado e enviado como resposta
-    - Caso a requisição seja para o "/", procurar pelo "index.html"
-    - Nao utilizar webservers prontos, implementar utilizando sockets"
+ * @description A tiny HTTP Server with Winsock writted in C.
+ * @license MIT
  */
 
 // DEFINE SECTION
@@ -43,7 +37,6 @@ int getServerSocket(struct addrinfo serverInfo);
 void logSockError(char *message);
 int bindSocket(SOCKET ServerSocket, struct addrinfo serverInfo);
 int listenSocket(SOCKET ServerSocket);
-int webServer(SOCKET *ServerSocket);
 char *getHTTPRequestMethod(char *HTTPRequest);
 char *getHTTPResponse(char *HTTPRequest);
 char *processGetRequest(char *HTTPRequest);
@@ -79,10 +72,11 @@ int main()
         return 1;
     }
 
-    // Define as informações de endereço.
+    // Especifica as informações de endereço que devem ser usadas no Socket servidor.
     setAddrInfo(&(hints));
 
-    // Define as informações do servidor com base na estrutura "hints" + porta.
+    // Define as informações do Socket servidor (que escuta na porta e aceita conexoes)
+    // com base na estrutura "hints" + porta.
     success = defineServerInfo(&hints, &serverInfo);
 
     if (!success) {
@@ -100,7 +94,7 @@ int main()
         return exitServer();
     }
 
-    // Associa o Socket servidor a porta local.
+    // Associa o Socket servidor ao endereco local.
     success = bindSocket(ServerSocket, *serverInfo);
 
     if (!success) {
@@ -191,11 +185,12 @@ int initWinsock(WSADATA *wsaDataAddr)
  */
 void setAddrInfo(struct addrinfo *hints)
 {
+    // Especifica as informaçoes preferidas para o Socket.
     ZeroMemory(hints, sizeof(*(hints)));
-    hints->ai_family = AF_INET;
-    hints->ai_socktype = SOCK_STREAM;
-    hints->ai_protocol = IPPROTO_TCP;
-    hints->ai_flags = AI_PASSIVE;
+    hints->ai_family = AF_INET; // Indica o protocolo IPv4.
+    hints->ai_socktype = SOCK_STREAM; // Indica servico orientado a conexao e entrega confiavel dos dados (full-duplex).
+    hints->ai_protocol = IPPROTO_TCP; // Indica o protocolo TCP.
+    hints->ai_flags = AI_PASSIVE; // Indica que o Socket e adequado para aceitar conexoes.
 }
 
 /**
@@ -312,7 +307,7 @@ char *getHTTPResponse(char *HTTPRequest)
  * @return
  */
 char *processGetRequest(char *HTTPRequest)
-{
+{    
     char *response;
     char *content;
     char *status;
@@ -451,7 +446,7 @@ void initSocketDescriptors(fd_set *socketDescriptors, SOCKET ServerSocket, SOCKE
  */
 int acceptNewConnection(SOCKET ServerSocket, SOCKET ClientSocketList[])
 {
-    SOCKET RecentSocket;
+    SOCKET RecentSocket = 0;
     int i;
 
     // Aceita uma nova conexao ao Socket servidor.
