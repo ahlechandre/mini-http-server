@@ -1,5 +1,5 @@
 # mini-http-server
-### A tiny HTTP Server with Winsock writted in C.
+### A tiny HTTP Server with Winsock written in C.
 
 ## Description
 

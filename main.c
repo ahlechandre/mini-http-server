@@ -1,6 +1,6 @@
 /**
  * @author Alexandre Thebaldi <ahlechandre@gmail.com>
- * @description A tiny HTTP Server with Winsock writted in C.
+ * @description A tiny HTTP Server with Winsock.
  * @license MIT
  */
 
